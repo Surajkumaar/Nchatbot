@@ -9,6 +9,7 @@ from deep_translator import GoogleTranslator
 from langdetect import detect
 import warnings
 import logging
+from pathlib import Path
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
@@ -48,19 +49,40 @@ class RAGSearch:
             model=model,
             tokenizer=tokenizer,
             max_new_tokens=512,
-            do_sample=True,
-            top_p=0.95,
-            temperature=0.7,
+            do_sample=False,
+            top_p=0.80,
+            temperature=0.3,
             eos_token_id=tokenizer.eos_token_id,
         )
         self.llm = HuggingFacePipeline(pipeline=gen_pipeline)
         print("✅ Sarvam-2B model loaded successfully!")
+
+        # Load system prompt once; keep in memory for reuse
+        self.system_prompt = self._load_system_prompt()
 
     def detect_language(self, text: str) -> str:
         try:
             return detect(text)
         except:
             return 'en'
+
+    def _load_system_prompt(self, path: str = None) -> str:
+        """Load nursing system prompt from file. Returns a default fallback if not available."""
+        if path is None:
+            # relative to project src directory
+            path = Path(__file__).parent / "nursing_system_prompt.txt"
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            # Minimal fallback system prompt
+            return (
+                """
+You are a Nursing Information Assistant. Use the provided context to answer administrative and educational
+questions about nursing programs. Do not give medical advice. If the answer is not in the context, say you
+don't know and suggest looking at official regulatory sources or asking for a broader search. Answer in user's language.
+"""
+            )
 
     def translate_if_needed(self, text: str, target_lang: str = 'en') -> str:
         source_lang = self.detect_language(text)
@@ -84,8 +106,11 @@ class RAGSearch:
         if not context:
             return "No relevant documents found."
             
-        # Create prompt for the model
-        prompt = f"""Based on the following context, answer the query: '{query}'\n\nContext:\n{context}\n\nAnswer:"""
+        # Create prompt for the model. Prepend the nursing system prompt as an instruction block.
+        sys_prompt = (self.system_prompt + "\n\n") if getattr(self, "system_prompt", None) else ""
+        prompt = (
+            f"{sys_prompt}Based on the following context, answer the query: '{query}'\n\nContext:\n{context}\n\nAnswer:"
+        )
         
         # Get response from Sarvam-2B
         response = self.llm.invoke(prompt)
