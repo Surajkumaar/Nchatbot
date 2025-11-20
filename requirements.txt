@@ -4,8 +4,8 @@ langchain-community
 pypdf
 pymupdf
 sentence-transformers
-faiss-cpu
 chromadb
+requests
 python-dotenv
 typesense
 torch

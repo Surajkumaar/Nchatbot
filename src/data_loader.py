@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-RAG bootstrapper: load (PDF/TXT/CSV/XLSX/DOCX/JSON/JSONL) -> chunk -> embed -> FAISS
+RAG bootstrapper: load (PDF/TXT/CSV/XLSX/DOCX/JSON/JSONL) -> chunk -> embed -> ChromaDB
 - JSON auto-handling for: [{"page": "...", "content": "..."}]
 - Attaches 'source_url' metadata from 'page'
-- Saves to ./faiss_store and reloads
+- Saves to ./chromaDB and reloads
 - Simple CLI for ad-hoc retrieval tests
 """
 
@@ -22,10 +22,19 @@ from langchain_community.document_loaders import (
     JSONLoader,
 )
 from langchain_community.document_loaders.excel import UnstructuredExcelLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain.schema import Document
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from langchain.schema import Document
+else:
+    # LangChain may not be installed in the environment used to run this project.
+    # Use a permissive alias so the rest of the code can type-hint Documents without a hard dependency.
+    Document = Any
+from src.vectorstore import ChromaVectorStore
+try:
+    from langchain.embeddings import HuggingFaceEmbeddings
+except Exception:
+    HuggingFaceEmbeddings = None
 
 # ---------------- Pretty banner ----------------
 BANNER = r"""
@@ -226,25 +235,38 @@ def chunk_documents(documents: List[Document],
 # ---------------- Embeddings ----------------
 def get_embeddings(model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
     _info(f"Loaded embedding model: {model_name}")
-    return HuggingFaceEmbeddings(model_name=model_name)
+    if HuggingFaceEmbeddings is not None:
+        return HuggingFaceEmbeddings(model_name=model_name)
+    # Fallback: return a SentenceTransformer instance if LangChain's wrapper isn't available
+    try:
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer(model_name)
+    except Exception:
+        _error("No embedding implementation available (install langchain or sentence-transformers)")
+        return None
 
 # ---------------- Vector store helpers ----------------
-def build_and_save_faiss(docs: List[Document],
-                         embeddings,
-                         faiss_dir: str = "faiss_store") -> FAISS:
+def build_and_save_chroma(docs: List[Document],
+                          embeddings,
+                          chroma_dir: str = "chromaDB",
+                          collection_name: str = "nursing_collection") -> ChromaVectorStore:
     _info(f"Building vector store from {len(docs)} raw documents...")
-    vectordb = FAISS.from_documents(docs, embeddings)
-    vectordb.save_local(faiss_dir)
-    _info(f"Vector store built and saved to {faiss_dir}")
-    return vectordb
+    store = ChromaVectorStore(persist_dir=chroma_dir)
+    store.build_from_documents(docs)
+    _info(f"Vector store built and saved to {chroma_dir}")
+    return store
 
-def load_faiss(faiss_dir: str = "faiss_store",
-               embeddings=None) -> FAISS:
-    _info("Loaded FAISS index and metadata from " + faiss_dir)
-    return FAISS.load_local(faiss_dir, embeddings, allow_dangerous_deserialization=True)
+
+def load_chroma(chroma_dir: str = "chromaDB",
+                embeddings=None,
+                collection_name: str = "nursing_collection") -> ChromaVectorStore:
+    _info("Loaded Chroma collection from " + chroma_dir)
+    store = ChromaVectorStore(persist_dir=chroma_dir)
+    store.load()
+    return store
 
 # ---------------- Simple CLI for testing ----------------
-def interactive_cli(vdb: FAISS, k: int = 5):
+def interactive_cli(vdb, k: int = 5):
     print("\nYou can now query the vector store. Type your question below.")
     while True:
         try:
@@ -268,7 +290,7 @@ def interactive_cli(vdb: FAISS, k: int = 5):
         for i, h in enumerate(hits, 1):
             src_path = h.metadata.get("source")
             src_url = h.metadata.get("source_url")
-            print(f"\n[{i}] score≈cos not shown (FAISS-only)")
+            print(f"\n[{i}] score≈cos not shown (Chroma-only)")
             if src_url:
                 print(f"    Source URL : {src_url}")
             if src_path:
@@ -283,7 +305,7 @@ if __name__ == "__main__":
 
     # Point to your BASE folder (not just pdf/)
     # Example: r"C:\Users\STIC-11\Desktop\Nchat\rag1"
-    base_path = r"C:\Users\STIC-11\Desktop\Nchat\RAG1"
+    base_path = r"C:\Users\hamsa\OneDrive\Desktop\my proj\Nursing chatbot\NCH_gemini\Nchatbot"
 
     # 1) Load
     raw_docs = load_all_documents(base_path)
@@ -297,11 +319,11 @@ if __name__ == "__main__":
     embed_model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     embeddings = get_embeddings(embed_model_name)
 
-    # 4) Build / Save FAISS
-    vectordb = build_and_save_faiss(chunks, embeddings, faiss_dir="faiss_store")
+    # 4) Build / Save ChromaDB
+    vectordb = build_and_save_chroma(chunks, embeddings, chroma_dir="chromaDB")
 
-    # 5) Reload FAISS (demonstrate load path)
-    vectordb = load_faiss("faiss_store", embeddings=embeddings)
+    # 5) Reload Chroma (demonstrate load path)
+    vectordb = load_chroma("chromaDB", embeddings=embeddings)
 
     # 6) (Optional) Show a couple of examples after load
     shown = 0

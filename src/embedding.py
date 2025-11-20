@@ -1,8 +1,7 @@
 from typing import List, Any
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import numpy as np
-from src.data_loader import load_all_documents
 
 class EmbeddingPipeline:
     def __init__(self, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", chunk_size: int = 1000, chunk_overlap: int = 200):
@@ -31,6 +30,8 @@ class EmbeddingPipeline:
 
 # Example usage
 if __name__ == "__main__":
+    # import here to avoid circular imports when this module is imported by other project modules
+    from src.data_loader import load_all_documents
     
     docs = load_all_documents("data")
     emb_pipe = EmbeddingPipeline()

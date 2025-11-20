@@ -1,5 +1,5 @@
 from src.data_loader import load_all_documents
-from src.vectorstore import FaissVectorStore
+from src.vectorstore import ChromaVectorStore
 from src.search import RAGSearch
 import os
 import re
@@ -26,13 +26,13 @@ def clean_model_output(text: str) -> str:
 
     # Remove specific noisy lines
     noisy_lines = [
-        r"🤖 Assistant:.*",
+        r" Assistant:.*",
         r"\[INFO\].*",
         r"Querying vector store.*",
         r"Based on the following context.*",
         r"Context:.*",
         r"End of system instructions.*",
-        r"⏱️ Response time:.*",
+        r" Response time:.*",
         r"-{3,}",
     ]
     for pattern in noisy_lines:
@@ -57,19 +57,23 @@ def clean_model_output(text: str) -> str:
 
 # ⚙️ --- SYSTEM INITIALIZATION ---
 def initialize_system():
-    print("\n🔄 Initializing the system...")
-    docs = load_all_documents(r"C:\Users\STIC-11\Desktop\Nchat\rag1\pdf")
-    store = FaissVectorStore("faiss_store")
-
-    if not os.path.exists(os.path.join("faiss_store", "faiss.index")):
-        print("📦 Building new vector store...")
+    print("\n Initializing the system...")
+    docs = load_all_documents(r"C:\Users\hamsa\OneDrive\Desktop\my proj\Nursing chatbot\NCH_gemini\Nchatbot\pdf")
+    store = ChromaVectorStore("chromaDB")
+    # Load and check collection size; rebuild if empty (handles .gitkeep case)
+    store.load()
+    try:
+        count = store.collection.count() if hasattr(store.collection, "count") else 0
+    except Exception:
+        count = 0
+    if count == 0:
+        print(" Building new vector store (ChromaDB)...")
         store.build_from_documents(docs)
     else:
-        print("📂 Loading existing vector store...")
-        store.load()
+        print(" Loaded existing ChromaDB vector store...")
 
     rag_search = RAGSearch()
-    print("\n✅ System initialized and ready!")
+    print("\n System initialized and ready!")
     return rag_search
 
 
@@ -81,7 +85,7 @@ def clear_screen():
 def print_welcome():
     clear_screen()
     print("=" * 60)
-    print("🏥 Welcome to the Nursing Information Assistant 🏥")
+    print(" Welcome to the Nursing Information Assistant ")
     print("=" * 60)
     print("\nI can help you with information about nursing colleges and related topics.")
     print("\nType 'quit' or 'exit' to end the conversation.")
@@ -96,11 +100,11 @@ def main():
 
     while True:
         try:
-            print("\n👤 You:", end=" ")
+            print("\n You:", end=" ")
             query = input().strip()
 
             if query.lower() in ['quit', 'exit']:
-                print("\n👋 Thank you for using the Nursing Information Assistant. Goodbye!")
+                print("\n Thank you for using the Nursing Information Assistant. Goodbye!")
                 break
 
             if query.lower() == 'clear':
@@ -111,7 +115,7 @@ def main():
                 continue
 
             start_time = time.time()
-            print("\n🤖 Assistant: ", end="")
+            print("\n Assistant: ", end="")
 
             summary = rag_search.search_and_summarize(query, top_k=3)
 
@@ -123,14 +127,14 @@ def main():
             print(cleaned_summary)
 
             response_time = time.time() - start_time
-            print(f"\n⏱️ Response time: {response_time:.2f} seconds")
+            print(f"\n Response time: {response_time:.2f} seconds")
             print("-" * 60)
 
         except KeyboardInterrupt:
-            print("\n\n👋 Goodbye!")
+            print("\n\n Goodbye!")
             break
         except Exception as e:
-            print(f"\n❌ Error: {str(e)}")
+            print(f"\n Error: {str(e)}")
             print("Please try again with a different question.")
 
 
